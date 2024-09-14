@@ -34,7 +34,7 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 
-from autolab_core import Point, Logger, DepthImage
+from core_updated import Point, Logger, DepthImage
 from visualization import Visualizer2D as vis
 
 from ...grasping import Grasp2D, SuctionPoint2D
@@ -104,23 +104,21 @@ class FullyConvolutionalGraspingPolicy(GraspingPolicy):
         to 0.0."""
         preds_masked = np.zeros_like(preds)
         raw_segmask_cropped = raw_segmask[self._gqcnn_recep_h //
-                                          2:raw_segmask.shape[0] -
-                                          self._gqcnn_recep_h // 2,
-                                          self._gqcnn_recep_w //
-                                          2:raw_segmask.shape[1] -
-                                          self._gqcnn_recep_w // 2, 0]
+                                        2:raw_segmask.shape[0] -
+                                        self._gqcnn_recep_h // 2,
+                                        self._gqcnn_recep_w //
+                                        2:raw_segmask.shape[1] -
+                                        self._gqcnn_recep_w // 2, 0]
         raw_segmask_downsampled = raw_segmask_cropped[::self._gqcnn_stride, ::
-                                                      self._gqcnn_stride]
-        if raw_segmask_downsampled.shape[0] != preds.shape[1]:
-            raw_segmask_downsampled_new = np.zeros(preds.shape[1:3])
-            raw_segmask_downsampled_new[:raw_segmask_downsampled.
-                                        shape[0], :raw_segmask_downsampled.
-                                        shape[1]] = raw_segmask_downsampled
+                                                    self._gqcnn_stride]
+        if raw_segmask_downsampled.shape[0] != preds.shape[1] or raw_segmask_downsampled.shape[1] != preds.shape[2]:
+            raw_segmask_downsampled_new = np.zeros((preds.shape[1], preds.shape[2]))
+            raw_segmask_downsampled_new[:raw_segmask_downsampled.shape[0], :raw_segmask_downsampled.shape[1]] = raw_segmask_downsampled[:raw_segmask_downsampled_new.shape[0], :raw_segmask_downsampled_new.shape[1]]
             raw_segmask_downsampled = raw_segmask_downsampled_new
         nonzero_mask_ind = np.where(raw_segmask_downsampled > 0)
         preds_masked[:, nonzero_mask_ind[0],
-                     nonzero_mask_ind[1]] = preds[:, nonzero_mask_ind[0],
-                                                  nonzero_mask_ind[1]]
+                    nonzero_mask_ind[1]] = preds[:, nonzero_mask_ind[0],
+                                                nonzero_mask_ind[1]]
         return preds_masked
 
     def _sample_predictions(self, preds, num_actions):

@@ -27,7 +27,7 @@ Author: Vishal Satish
 """
 from .tf import GQCNNTF, FCGQCNNTF
 
-from autolab_core import Logger
+from core_updated import Logger
 
 
 def get_gqcnn_model(backend="tf", verbose=True):

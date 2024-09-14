@@ -41,8 +41,8 @@ import scipy.ndimage.filters as snf
 import scipy.stats as ss
 from sklearn.mixture import GaussianMixture
 
-import autolab_core.utils as utils
-from autolab_core import (Point, Logger, BinaryImage, ColorImage,
+import core_updated.utils as utils
+from core_updated import (Point, Logger, BinaryImage, ColorImage,
                           DepthImage, RgbdImage, SegmentationImage,
                           CameraIntrinsics)
 from visualization import Visualizer2D as vis

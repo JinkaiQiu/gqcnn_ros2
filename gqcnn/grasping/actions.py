@@ -32,7 +32,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-from autolab_core import Point
+from core_updated import Point
 
 from .grasp import Grasp2D, SuctionPoint2D, MultiSuctionPoint2D
 

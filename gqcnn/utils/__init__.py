@@ -24,7 +24,8 @@ MAINTENANCE, SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
 """
 from .enums import (ImageMode, TrainingMode, GripperMode, InputDepthMode,
                     GeneralConstants, GQCNNTrainingStatus, GQCNNFilenames)
-from .policy_exceptions import (NoValidGraspsException,
+from .policy_exceptions import (GraspServiceException,
+                                NoValidGraspsException,
                                 NoAntipodalPairsFoundException)
 from .train_stats_logger import TrainStatsLogger
 from .utils import (is_py2, set_cuda_visible_devices, pose_dim, read_pose_data,

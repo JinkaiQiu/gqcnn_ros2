@@ -36,12 +36,14 @@ import math
 import operator
 import os
 import time
+import cv2
 
 import numpy as np
 import tensorflow as tf
-import tensorflow.contrib.framework as tcf
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
 
-from autolab_core import Logger
+from core_updated import Logger
 from ...utils import (reduce_shape, read_pose_data, pose_dim,
                       weight_name_to_layer_name, GripperMode, TrainingMode,
                       InputDepthMode, GQCNNFilenames)
@@ -340,7 +342,7 @@ class GQCNNTF(object):
             self._weights = GQCNNWeights()
 
             # Read/generate weight/bias variable names.
-            ckpt_vars = tcf.list_variables(ckpt_file)
+            ckpt_vars = tf.train.list_variables(ckpt_file)
             full_var_names = []
             short_names = []
             for variable, shape in ckpt_vars:
@@ -373,7 +375,7 @@ class GQCNNTF(object):
             self._weights = GQCNNWeights()
 
             # Read/generate weight/bias variable names.
-            ckpt_vars = tcf.list_variables(ckpt_file)
+            ckpt_vars = tf.train.list_variables(ckpt_file)
             full_var_names = []
             short_names = []
             for variable, shape in ckpt_vars:
@@ -569,21 +571,24 @@ class GQCNNTF(object):
             self._sess.run(init)
         return self._sess
 
-    def close_session(self):
-        """Close Tensorflow session."""
-        if self._sess is None:
-            self._logger.warning("No TF Session to close...")
-            return
-        self._logger.info("Closing TF Session...")
-        with self._graph.as_default():
-            self._sess.close()
-            self._sess = None
+    # def close_session(self):
+    #     """Close Tensorflow session."""
+    #     if self._sess is None:
+    #         self._logger.warning("No TF Session to close...")
+    #         return
+    #     self._logger.info("Closing TF Session...")
+    #     try:
+    #         with self._graph.as_default():
+    #             self._sess.close()
+    #     except AttributeError:
+    #         self._logger.warning("Graph has already been deleted.")
+    #     self._sess = None
 
-    def __del__(self):
-        """Destructor that basically just makes sure the Tensorflow session
-        has been closed."""
-        if self._sess is not None:
-            self.close_session()
+    # def __del__(self):
+    #     """Destructor that basically just makes sure the Tensorflow session
+    #     has been closed."""
+    #     if self._sess is not None:
+    #         self.close_session()
 
     @property
     def input_depth_mode(self):
@@ -876,6 +881,19 @@ class GQCNNTF(object):
                 dim = min(self._batch_size, num_images - i)
                 cur_ind = i
                 end_ind = cur_ind + dim
+
+                target_shape = self._input_im_arr.shape[1:3]
+                if target_shape != image_arr.shape[1:3]:
+                    self._logger.warning(
+                        "Resizing input images from {} to {}".format(
+                            image_arr.shape[1:3], target_shape))
+                    image_arr = np.array([
+                        cv2.resize(im, target_shape[::-1])
+                        for im in image_arr[cur_ind:end_ind]
+                    ])
+                    
+                if image_arr.ndim == 3:
+                    image_arr = np.expand_dims(image_arr, axis=-1)
 
                 if self._input_depth_mode == InputDepthMode.POSE_STREAM:
                     self._input_im_arr[:dim,

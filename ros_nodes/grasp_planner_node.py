@@ -36,28 +36,37 @@ import time
 
 from cv_bridge import CvBridge, CvBridgeError
 import numpy as np
-import rospy
 
-from autolab_core import (YamlConfig, CameraIntrinsics, ColorImage,
+import rclpy
+import rclpy.exceptions
+import rclpy.logging
+from rclpy.node import Node
+from ament_index_python.packages import get_package_share_directory
+
+from core_updated import (YamlConfig, CameraIntrinsics, ColorImage,
                           DepthImage, BinaryImage, RgbdImage)
+
 from visualization import Visualizer2D as vis
 from gqcnn.grasping import (Grasp2D, SuctionPoint2D, RgbdImageState,
                             RobustGraspingPolicy,
                             CrossEntropyRobustGraspingPolicy,
                             FullyConvolutionalGraspingPolicyParallelJaw,
                             FullyConvolutionalGraspingPolicySuction)
-from gqcnn.utils import GripperMode, NoValidGraspsException
+from gqcnn.utils import GripperMode, NoValidGraspsException, GraspServiceException
 
 from geometry_msgs.msg import PoseStamped
+import rclpy.parameter
+import rclpy.publisher
+import rclpy.time
 from std_msgs.msg import Header
-from gqcnn.srv import (GQCNNGraspPlanner, GQCNNGraspPlannerBoundingBox,
+from gqcnn_interface.srv import (GQCNNGraspPlanner, GQCNNGraspPlannerBoundingBox,
                        GQCNNGraspPlannerSegmask)
-from gqcnn.msg import GQCNNGrasp
+from gqcnn_interface.msg import GQCNNGrasp
 
 
 class GraspPlanner(object):
 
-    def __init__(self, cfg, cv_bridge, grasping_policy, grasp_pose_publisher):
+    def __init__(self, cfg, cv_bridge, grasping_policy, grasp_pose_publisher, logger, node_time):
         """
         Parameters
         ----------
@@ -69,11 +78,14 @@ class GraspPlanner(object):
             Grasping policy to use.
         grasp_pose_publisher: :obj:`Publisher`
             ROS publisher to publish pose of planned grasp for visualization.
+        logger: :obj:`rclpy.logging.Logger`
         """
         self.cfg = cfg
         self.cv_bridge = cv_bridge
         self.grasping_policy = grasping_policy
         self.grasp_pose_publisher = grasp_pose_publisher
+        self.logger = logger
+        self.node_time = node_time
 
         # Set minimum input dimensions.
         policy_type = "cem"
@@ -115,9 +127,9 @@ class GraspPlanner(object):
         # Wrap the camera info in a BerkeleyAutomation/autolab_core
         # `CameraIntrinsics` object.
         camera_intr = CameraIntrinsics(
-            raw_camera_info.header.frame_id, raw_camera_info.K[0],
-            raw_camera_info.K[4], raw_camera_info.K[2], raw_camera_info.K[5],
-            raw_camera_info.K[1], raw_camera_info.height,
+            raw_camera_info.header.frame_id, raw_camera_info.k[0],
+            raw_camera_info.k[4], raw_camera_info.k[2], raw_camera_info.k[5],
+            raw_camera_info.k[1], raw_camera_info.height,
             raw_camera_info.width)
 
         # Create wrapped BerkeleyAutomation/autolab_core RGB and depth images
@@ -130,7 +142,7 @@ class GraspPlanner(object):
                 raw_depth, desired_encoding="passthrough"),
                                   frame=camera_intr.frame)
         except CvBridgeError as cv_bridge_exception:
-            rospy.logerr(cv_bridge_exception)
+            self.logger.error(cv_bridge_exception)
 
         # Check image sizes.
         if color_im.height != depth_im.height or \
@@ -139,8 +151,8 @@ class GraspPlanner(object):
                    " is %d x %d but depth is %d x %d") % (
                        color_im.height, color_im.width, depth_im.height,
                        depth_im.width)
-            rospy.logerr(msg)
-            raise rospy.ServiceException(msg)
+            self.logger.error(msg)
+            raise GraspServiceException(msg)
 
         if (color_im.height < self.min_height
                 or color_im.width < self.min_width):
@@ -148,12 +160,12 @@ class GraspPlanner(object):
                    " resolution but the requested image is only %d x %d") % (
                        self.min_height, self.min_width, color_im.height,
                        color_im.width)
-            rospy.logerr(msg)
-            raise rospy.ServiceException(msg)
+            self.logger.error(msg)
+            raise GraspServiceException(msg)
 
         return color_im, depth_im, camera_intr
 
-    def plan_grasp(self, req):
+    def plan_grasp(self, req, response):
         """Grasp planner request handler.
 
         Parameters
@@ -162,9 +174,10 @@ class GraspPlanner(object):
             ROS `ServiceRequest` for grasp planner service.
         """
         color_im, depth_im, camera_intr = self.read_images(req)
-        return self._plan_grasp(color_im, depth_im, camera_intr)
+        response.grasp = self._plan_grasp(color_im, depth_im, camera_intr)
+        return response
 
-    def plan_grasp_bb(self, req):
+    def plan_grasp_bb(self, req, response):
         """Grasp planner request handler.
 
         Parameters
@@ -178,7 +191,7 @@ class GraspPlanner(object):
                                 camera_intr,
                                 bounding_box=req.bounding_box)
 
-    def plan_grasp_segmask(self, req):
+    def plan_grasp_segmask(self, req, response):
         """Grasp planner request handler.
 
         Parameters
@@ -193,20 +206,21 @@ class GraspPlanner(object):
                 raw_segmask, desired_encoding="passthrough"),
                                   frame=camera_intr.frame)
         except CvBridgeError as cv_bridge_exception:
-            rospy.logerr(cv_bridge_exception)
+            self.logger.error(cv_bridge_exception)
         if color_im.height != segmask.height or \
            color_im.width != segmask.width:
             msg = ("Images and segmask must be the same shape! Color image is"
                    " %d x %d but segmask is %d x %d") % (
                        color_im.height, color_im.width, segmask.height,
                        segmask.width)
-            rospy.logerr(msg)
-            raise rospy.ServiceException(msg)
+            self.logger.error(msg)
+            raise GraspServiceException(msg)
 
-        return self._plan_grasp(color_im,
+        response.grasp = self._plan_grasp(color_im,
                                 depth_im,
                                 camera_intr,
                                 segmask=segmask)
+        return response
 
     def _plan_grasp(self,
                     color_im,
@@ -221,7 +235,7 @@ class GraspPlanner(object):
         req: :obj:`ROS ServiceRequest`
             ROS `ServiceRequest` for grasp planner service.
         """
-        rospy.loginfo("Planning Grasp")
+        self.logger.info("Planning Grasp")
 
         # Inpaint images.
         color_im = color_im.inpaint(
@@ -253,10 +267,10 @@ class GraspPlanner(object):
         # Mask bounding box.
         if bounding_box is not None:
             # Calc bb parameters.
-            min_x = bounding_box.minX
-            min_y = bounding_box.minY
-            max_x = bounding_box.maxX
-            max_y = bounding_box.maxY
+            min_x = bounding_box.minx
+            min_y = bounding_box.miny
+            max_x = bounding_box.maxx
+            max_y = bounding_box.maxy
 
             # Contain box to image->don't let it exceed image height/width
             # bounds.
@@ -296,10 +310,10 @@ class GraspPlanner(object):
                                        self.grasp_pose_publisher,
                                        camera_intr.frame)
         except NoValidGraspsException:
-            rospy.logerr(
+            self.logger.error(
                 ("While executing policy found no valid grasps from sampled"
                  " antipodal point pairs. Aborting Policy!"))
-            raise rospy.ServiceException(
+            raise GraspServiceException(
                 ("While executing policy found no valid grasps from sampled"
                  " antipodal point pairs. Aborting Policy!"))
 
@@ -332,14 +346,14 @@ class GraspPlanner(object):
         elif isinstance(grasp.grasp, SuctionPoint2D):
             gqcnn_grasp.grasp_type = GQCNNGrasp.SUCTION
         else:
-            rospy.logerr("Grasp type not supported!")
-            raise rospy.ServiceException("Grasp type not supported!")
+            self.logger.error("Grasp type not supported!")
+            raise GraspServiceException("Grasp type not supported!")
 
         # Store grasp representation in image space.
         gqcnn_grasp.center_px[0] = grasp.grasp.center[0]
         gqcnn_grasp.center_px[1] = grasp.grasp.center[1]
         gqcnn_grasp.angle = grasp.grasp.angle
-        gqcnn_grasp.depth = grasp.grasp.depth
+        gqcnn_grasp.depth = float(grasp.grasp.depth)
         gqcnn_grasp.thumbnail = grasp.image.rosmsg
 
         # Create and publish the pose alone for easy visualization of grasp
@@ -347,123 +361,228 @@ class GraspPlanner(object):
         pose_stamped = PoseStamped()
         pose_stamped.pose = grasp.grasp.pose().pose_msg
         header = Header()
-        header.stamp = rospy.Time.now()
+        header.stamp = self.node_time.now().to_msg()
         header.frame_id = pose_frame
         pose_stamped.header = header
         grasp_pose_publisher.publish(pose_stamped)
 
-        # Return `GQCNNGrasp` msg.
-        rospy.loginfo("Total grasp planning time: " +
-                      str(time.time() - grasp_planning_start_time) + " secs.")
+        # Return `GQCNNGrasp` msg.    
+        self.logger.info("Grasp Planned time: " +
+                         str(time.time() - grasp_planning_start_time) + " secs.")
 
         return gqcnn_grasp
 
+class GraspPlannerNode(Node):
+    def __init__(self):
+        super().__init__("Grasp_Sampler_Server")
+
+        cv_bridge = CvBridge()
+        self.pkg_share_dir = get_package_share_directory("gqcnn")
+        # Get configs.
+        self.declare_parameter("model_name", "FC-GQCNN-4.0-SUCTION")
+        self.declare_parameter("model_dir", self.pkg_share_dir + "/models")
+        self.declare_parameter("fully_conv", True)
+        model_name = self.get_parameter("model_name").value
+        model_dir = self.get_parameter("model_dir").value
+        fully_conv = self.get_parameter("fully_conv").value
+
+        model_dir = os.path.join(model_dir, model_name)
+        model_config = json.load(open(os.path.join(model_dir, "config.json"), "r"))
+        try:
+            gqcnn_config = model_config["gqcnn"]
+            gripper_mode = gqcnn_config["gripper_mode"]
+        except KeyError:
+            gqcnn_config = model_config["gqcnn_config"]
+            input_data_mode = gqcnn_config["input_data_mode"]
+            if input_data_mode == "tf_image":
+                gripper_mode = GripperMode.LEGACY_PARALLEL_JAW
+            elif input_data_mode == "tf_image_suction":
+                gripper_mode = GripperMode.LEGACY_SUCTION
+            elif input_data_mode == "suction":
+                gripper_mode = GripperMode.SUCTION
+            elif input_data_mode == "multi_suction":
+                gripper_mode = GripperMode.MULTI_SUCTION
+            elif input_data_mode == "parallel_jaw":
+                gripper_mode = GripperMode.PARALLEL_JAW
+            else:
+                raise ValueError(
+                    "Input data mode {} not supported!".format(input_data_mode))
+        # Set config.
+        if fully_conv:
+            config_filename = os.path.join(self.pkg_share_dir, "cfg/examples/ros/fc_gqcnn_suction.yaml")
+        else:
+            config_filename = os.path.join(
+                os.path.dirname(os.path.realpath(__file__)), "..",
+                "cfg/examples/ros/gqcnn_suction.yaml")
+        if (gripper_mode == GripperMode.LEGACY_PARALLEL_JAW
+                or gripper_mode == GripperMode.PARALLEL_JAW):
+            if fully_conv:
+                config_filename = os.path.join(
+                    os.path.dirname(os.path.realpath(__file__)), "..",
+                    "cfg/examples/ros/fc_gqcnn_pj.yaml")
+            else:
+                config_filename = os.path.join(
+                    os.path.dirname(os.path.realpath(__file__)), "..",
+                    "cfg/examples/ros/gqcnn_pj.yaml")
+
+        # Read config.
+        cfg = YamlConfig(config_filename)
+        policy_cfg = cfg["policy"]
+        policy_cfg["metric"]["gqcnn_model"] = model_dir
+
+        # Create publisher to publish pose of final grasp.
+        self.grasp_pose_publisher = self.create_publisher(PoseStamped, "/gqcnn_grasp/pose", 10)
+
+        # Create a grasping policy.
+        self.get_logger().info("Creating Grasping Policy")
+        if fully_conv:
+            # TODO(vsatish): We should really be doing this in some factory policy.
+            if policy_cfg["type"] == "fully_conv_suction":
+                grasping_policy = \
+                    FullyConvolutionalGraspingPolicySuction(policy_cfg)
+            elif policy_cfg["type"] == "fully_conv_pj":
+                grasping_policy = \
+                    FullyConvolutionalGraspingPolicyParallelJaw(policy_cfg)
+            else:
+                raise ValueError(
+                    "Invalid fully-convolutional policy type: {}".format(
+                        policy_cfg["type"]))
+        else:
+            policy_type = "cem"
+            if "type" in policy_cfg:
+                policy_type = policy_cfg["type"]
+            if policy_type == "ranking":
+                grasping_policy = RobustGraspingPolicy(policy_cfg)
+            elif policy_type == "cem":
+                grasping_policy = CrossEntropyRobustGraspingPolicy(policy_cfg)
+            else:
+                raise ValueError("Invalid policy type: {}".format(policy_type))
+
+        # Create a grasp planner.
+        self.grasp_planner = GraspPlanner(cfg, cv_bridge, grasping_policy,
+                                    self.grasp_pose_publisher, self.get_logger(), self.get_clock())
+
+        # Initialize the ROS2 services
+        self._logger.info("Grasping Policy Initialized")
+        self.grasp_planning_service = self.create_service(GQCNNGraspPlanner, "grasp_planner", self.grasp_planner.plan_grasp)
+        self.grasp_planning_service_bb = self.create_service(GQCNNGraspPlannerBoundingBox, "grasp_planner_bounding_box", self.grasp_planner.plan_grasp_bb)
+        self.grasp_planning_service_segmask = self.create_service(GQCNNGraspPlannerSegmask, "grasp_planner_segmask", self.grasp_planner.plan_grasp_segmask)
+
+def main(args=None):
+    rclpy.init(args=args)
+    grasp_planner_node = GraspPlannerNode()
+    rclpy.spin(grasp_planner_node)
+    grasp_planner_node.destroy_node()
+    rclpy.shutdown()
 
 if __name__ == "__main__":
-    # Initialize the ROS node.
-    rospy.init_node("Grasp_Sampler_Server")
+    main()
 
-    # Initialize `CvBridge`.
-    cv_bridge = CvBridge()
+# if __name__ == "__main__":
+#     # Initialize the ROS node.
+#     rospy.init_node("Grasp_Sampler_Server")
 
-    # Get configs.
-    model_name = rospy.get_param("~model_name")
-    model_dir = rospy.get_param("~model_dir")
-    fully_conv = rospy.get_param("~fully_conv")
-    if model_dir.lower() == "default":
-        model_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                 "../models")
-    model_dir = os.path.join(model_dir, model_name)
-    model_config = json.load(open(os.path.join(model_dir, "config.json"), "r"))
-    try:
-        gqcnn_config = model_config["gqcnn"]
-        gripper_mode = gqcnn_config["gripper_mode"]
-    except KeyError:
-        gqcnn_config = model_config["gqcnn_config"]
-        input_data_mode = gqcnn_config["input_data_mode"]
-        if input_data_mode == "tf_image":
-            gripper_mode = GripperMode.LEGACY_PARALLEL_JAW
-        elif input_data_mode == "tf_image_suction":
-            gripper_mode = GripperMode.LEGACY_SUCTION
-        elif input_data_mode == "suction":
-            gripper_mode = GripperMode.SUCTION
-        elif input_data_mode == "multi_suction":
-            gripper_mode = GripperMode.MULTI_SUCTION
-        elif input_data_mode == "parallel_jaw":
-            gripper_mode = GripperMode.PARALLEL_JAW
-        else:
-            raise ValueError(
-                "Input data mode {} not supported!".format(input_data_mode))
+#     # Initialize `CvBridge`.
+#     cv_bridge = CvBridge()
 
-    # Set config.
-    if fully_conv:
-        config_filename = os.path.join(
-            os.path.dirname(os.path.realpath(__file__)), "..",
-            "cfg/examples/ros/fc_gqcnn_suction.yaml")
-    else:
-        config_filename = os.path.join(
-            os.path.dirname(os.path.realpath(__file__)), "..",
-            "cfg/examples/ros/gqcnn_suction.yaml")
-    if (gripper_mode == GripperMode.LEGACY_PARALLEL_JAW
-            or gripper_mode == GripperMode.PARALLEL_JAW):
-        if fully_conv:
-            config_filename = os.path.join(
-                os.path.dirname(os.path.realpath(__file__)), "..",
-                "cfg/examples/ros/fc_gqcnn_pj.yaml")
-        else:
-            config_filename = os.path.join(
-                os.path.dirname(os.path.realpath(__file__)), "..",
-                "cfg/examples/ros/gqcnn_pj.yaml")
+#     # Get configs.
+#     model_name = rospy.get_param("~model_name")
+#     model_dir = rospy.get_param("~model_dir")
+#     fully_conv = rospy.get_param("~fully_conv")
+#     if model_dir.lower() == "default":
+#         model_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)),
+#                                  "../models")
+#     model_dir = os.path.join(model_dir, model_name)
+#     model_config = json.load(open(os.path.join(model_dir, "config.json"), "r"))
+#     try:
+#         gqcnn_config = model_config["gqcnn"]
+#         gripper_mode = gqcnn_config["gripper_mode"]
+#     except KeyError:
+#         gqcnn_config = model_config["gqcnn_config"]
+#         input_data_mode = gqcnn_config["input_data_mode"]
+#         if input_data_mode == "tf_image":
+#             gripper_mode = GripperMode.LEGACY_PARALLEL_JAW
+#         elif input_data_mode == "tf_image_suction":
+#             gripper_mode = GripperMode.LEGACY_SUCTION
+#         elif input_data_mode == "suction":
+#             gripper_mode = GripperMode.SUCTION
+#         elif input_data_mode == "multi_suction":
+#             gripper_mode = GripperMode.MULTI_SUCTION
+#         elif input_data_mode == "parallel_jaw":
+#             gripper_mode = GripperMode.PARALLEL_JAW
+#         else:
+#             raise ValueError(
+#                 "Input data mode {} not supported!".format(input_data_mode))
 
-    # Read config.
-    cfg = YamlConfig(config_filename)
-    policy_cfg = cfg["policy"]
-    policy_cfg["metric"]["gqcnn_model"] = model_dir
+#     # Set config.
+#     if fully_conv:
+#         config_filename = os.path.join(
+#             os.path.dirname(os.path.realpath(__file__)), "..",
+#             "cfg/examples/ros/fc_gqcnn_suction.yaml")
+#     else:
+#         config_filename = os.path.join(
+#             os.path.dirname(os.path.realpath(__file__)), "..",
+#             "cfg/examples/ros/gqcnn_suction.yaml")
+#     if (gripper_mode == GripperMode.LEGACY_PARALLEL_JAW
+#             or gripper_mode == GripperMode.PARALLEL_JAW):
+#         if fully_conv:
+#             config_filename = os.path.join(
+#                 os.path.dirname(os.path.realpath(__file__)), "..",
+#                 "cfg/examples/ros/fc_gqcnn_pj.yaml")
+#         else:
+#             config_filename = os.path.join(
+#                 os.path.dirname(os.path.realpath(__file__)), "..",
+#                 "cfg/examples/ros/gqcnn_pj.yaml")
 
-    # Create publisher to publish pose of final grasp.
-    grasp_pose_publisher = rospy.Publisher("/gqcnn_grasp/pose",
-                                           PoseStamped,
-                                           queue_size=10)
+#     # Read config.
+#     cfg = YamlConfig(config_filename)
+#     policy_cfg = cfg["policy"]
+#     policy_cfg["metric"]["gqcnn_model"] = model_dir
 
-    # Create a grasping policy.
-    rospy.loginfo("Creating Grasping Policy")
-    if fully_conv:
-        # TODO(vsatish): We should really be doing this in some factory policy.
-        if policy_cfg["type"] == "fully_conv_suction":
-            grasping_policy = \
-                FullyConvolutionalGraspingPolicySuction(policy_cfg)
-        elif policy_cfg["type"] == "fully_conv_pj":
-            grasping_policy = \
-                FullyConvolutionalGraspingPolicyParallelJaw(policy_cfg)
-        else:
-            raise ValueError(
-                "Invalid fully-convolutional policy type: {}".format(
-                    policy_cfg["type"]))
-    else:
-        policy_type = "cem"
-        if "type" in policy_cfg:
-            policy_type = policy_cfg["type"]
-        if policy_type == "ranking":
-            grasping_policy = RobustGraspingPolicy(policy_cfg)
-        elif policy_type == "cem":
-            grasping_policy = CrossEntropyRobustGraspingPolicy(policy_cfg)
-        else:
-            raise ValueError("Invalid policy type: {}".format(policy_type))
+#     # Create publisher to publish pose of final grasp.
+#     grasp_pose_publisher = rospy.Publisher("/gqcnn_grasp/pose",
+#                                            PoseStamped,
+#                                            queue_size=10)
 
-    # Create a grasp planner.
-    grasp_planner = GraspPlanner(cfg, cv_bridge, grasping_policy,
-                                 grasp_pose_publisher)
+#     # Create a grasping policy.
+#     rospy.loginfo("Creating Grasping Policy")
+#     if fully_conv:
+#         # TODO(vsatish): We should really be doing this in some factory policy.
+#         if policy_cfg["type"] == "fully_conv_suction":
+#             grasping_policy = \
+#                 FullyConvolutionalGraspingPolicySuction(policy_cfg)
+#         elif policy_cfg["type"] == "fully_conv_pj":
+#             grasping_policy = \
+#                 FullyConvolutionalGraspingPolicyParallelJaw(policy_cfg)
+#         else:
+#             raise ValueError(
+#                 "Invalid fully-convolutional policy type: {}".format(
+#                     policy_cfg["type"]))
+#     else:
+#         policy_type = "cem"
+#         if "type" in policy_cfg:
+#             policy_type = policy_cfg["type"]
+#         if policy_type == "ranking":
+#             grasping_policy = RobustGraspingPolicy(policy_cfg)
+#         elif policy_type == "cem":
+#             grasping_policy = CrossEntropyRobustGraspingPolicy(policy_cfg)
+#         else:
+#             raise ValueError("Invalid policy type: {}".format(policy_type))
 
-    # Initialize the ROS service.
-    grasp_planning_service = rospy.Service("grasp_planner", GQCNNGraspPlanner,
-                                           grasp_planner.plan_grasp)
-    grasp_planning_service_bb = rospy.Service("grasp_planner_bounding_box",
-                                              GQCNNGraspPlannerBoundingBox,
-                                              grasp_planner.plan_grasp_bb)
-    grasp_planning_service_segmask = rospy.Service(
-        "grasp_planner_segmask", GQCNNGraspPlannerSegmask,
-        grasp_planner.plan_grasp_segmask)
-    rospy.loginfo("Grasping Policy Initialized")
+#     # Create a grasp planner.
+#     grasp_planner = GraspPlanner(cfg, cv_bridge, grasping_policy,
+#                                  grasp_pose_publisher)
 
-    # Spin forever.
-    rospy.spin()
+#     # Initialize the ROS service.
+#     grasp_planning_service = rospy.Service("grasp_planner", GQCNNGraspPlanner,
+#                                            grasp_planner.plan_grasp)
+#     grasp_planning_service_bb = rospy.Service("grasp_planner_bounding_box",
+#                                               GQCNNGraspPlannerBoundingBox,
+#                                               grasp_planner.plan_grasp_bb)
+#     grasp_planning_service_segmask = rospy.Service(
+#         "grasp_planner_segmask", GQCNNGraspPlannerSegmask,
+#         grasp_planner.plan_grasp_segmask)
+#     rospy.loginfo("Grasping Policy Initialized")
+
+#     # Spin forever.
+#     rospy.spin()

@@ -28,6 +28,10 @@ Author
 ------
 Vishal Satish
 """
+class GraspServiceException(Exception):
+    """Exception for when a service call fails."""
+    def __init__(self, error_msg, parameters, *args) :
+        Exception.__init__(self, error_msg, parameters, *args)
 
 
 class NoValidGraspsException(Exception):

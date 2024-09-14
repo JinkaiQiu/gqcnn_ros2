@@ -1,0 +1,30 @@
+{
+    "python.autoComplete.extraPaths": [
+        "/home/jinkai/ws_moveit2/install/moveit_task_constructor_core/local/lib/python3.10/dist-packages",
+        "/home/jinkai/ws_moveit2/install/moveit_configs_utils/lib/python3.10/site-packages",
+        "/home/jinkai/ws_moveit2/install/srdfdom/local/lib/python3.10/dist-packages",
+        "/home/jinkai/ws_moveit2/install/moveit_task_constructor_msgs/local/lib/python3.10/dist-packages",
+        "/home/jinkai/ws_moveit2/install/launch_param_builder/lib/python3.10/site-packages",
+        "/home/jinkai/Desktop/ROS_dev/162D-Project/install/CRAP_navigation/lib/python3.10/site-packages",
+        "/home/jinkai/Desktop/ROS_dev/162D-Project/install/serial_motor_demo/lib/python3.10/site-packages",
+        "/home/jinkai/Desktop/ROS_dev/162D-Project/install/serial_motor_demo_msgs/local/lib/python3.10/dist-packages",
+        "/home/jinkai/Desktop/ROS_dev/162D-Project/install/learning_node/lib/python3.10/site-packages",
+        "/home/jinkai/Desktop/ROS_dev/162D-Project/install/CRAP_sim_def/lib/python3.10/site-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/jinkai/ws_moveit2/install/moveit_task_constructor_core/local/lib/python3.10/dist-packages",
+        "/home/jinkai/ws_moveit2/install/moveit_configs_utils/lib/python3.10/site-packages",
+        "/home/jinkai/ws_moveit2/install/srdfdom/local/lib/python3.10/dist-packages",
+        "/home/jinkai/ws_moveit2/install/moveit_task_constructor_msgs/local/lib/python3.10/dist-packages",
+        "/home/jinkai/ws_moveit2/install/launch_param_builder/lib/python3.10/site-packages",
+        "/home/jinkai/Desktop/ROS_dev/162D-Project/install/CRAP_navigation/lib/python3.10/site-packages",
+        "/home/jinkai/Desktop/ROS_dev/162D-Project/install/serial_motor_demo/lib/python3.10/site-packages",
+        "/home/jinkai/Desktop/ROS_dev/162D-Project/install/serial_motor_demo_msgs/local/lib/python3.10/dist-packages",
+        "/home/jinkai/Desktop/ROS_dev/162D-Project/install/learning_node/lib/python3.10/site-packages",
+        "/home/jinkai/Desktop/ROS_dev/162D-Project/install/CRAP_sim_def/lib/python3.10/site-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ]
+}

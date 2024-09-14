@@ -45,7 +45,7 @@ import numpy as np
 import scipy.stats as ss
 import tensorflow as tf
 
-from autolab_core import (BinaryClassificationResult, RegressionResult,
+from core_updated import (BinaryClassificationResult, RegressionResult,
                           TensorDataset, Logger)
 from autolab_core.constants import JSON_INDENT
 import autolab_core.utils as utils
@@ -399,8 +399,7 @@ class GQCNNTrainerTF(object):
                                 self.input_pose_node: poses,
                                 self.train_labels_node: labels,
                                 self.train_pred_mask_node: masks
-                            },
-                            options=GeneralConstants.timeout_option)
+                            })
                 else:
                     images, poses, labels = self.prefetch_q.get()
                     _, l, ur_l, lr, predictions, raw_net_output = \
@@ -415,8 +414,7 @@ class GQCNNTrainerTF(object):
                                 self.input_im_node: images,
                                 self.input_pose_node: poses,
                                 self.train_labels_node: labels
-                            },
-                            options=GeneralConstants.timeout_option)
+                            })
                 step_stop = time.time()
                 self.logger.info("Step took {} sec.".format(
                     str(round(step_stop - step_start, 3))))

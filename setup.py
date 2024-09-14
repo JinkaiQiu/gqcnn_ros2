@@ -35,142 +35,72 @@ from setuptools.command.develop import develop
 from setuptools.command.install import install
 import subprocess
 import sys
-
-TF_MAX_VERSION = "1.15.0"
+from glob import glob
 
 # Set up logger.
 logging.basicConfig()  # Configure the root logger.
 logger = logging.getLogger("setup.py")
 logger.setLevel(logging.INFO)
 
-
-def get_tf_dep():
-    # Check whether or not the Nvidia driver and GPUs are available and add the
-    # corresponding Tensorflow dependency.
-    tf_dep = "tensorflow<={}".format(TF_MAX_VERSION)
-    try:
-        gpus = subprocess.check_output(
-            ["nvidia-smi", "--query-gpu=gpu_name",
-             "--format=csv"]).decode().strip().split("\n")[1:]
-        if len(gpus) > 0:
-            tf_dep = "tensorflow-gpu<={}".format(TF_MAX_VERSION)
-        else:
-            no_device_msg = ("Found Nvidia device driver but no"
-                             " devices...installing Tensorflow for CPU.")
-            logger.warning(no_device_msg)
-    except OSError:
-        no_driver_msg = ("Could not find Nvidia device driver...installing"
-                         " Tensorflow for CPU.")
-        logger.warning(no_driver_msg)
-    return tf_dep
-
-
-# TODO(vsatish): Use inheritance here.
-class DevelopCmd(develop):
-    user_options_custom = [
-        ("docker", None, "installing in Docker"),
-    ]
-    user_options = getattr(develop, "user_options", []) + user_options_custom
-
-    def initialize_options(self):
-        develop.initialize_options(self)
-
-        # Initialize options.
-        self.docker = False
-
-    def finalize_options(self):
-        develop.finalize_options(self)
-
-    def run(self):
-        # Install Tensorflow dependency.
-        if not self.docker:
-            tf_dep = get_tf_dep()
-            subprocess.Popen([sys.executable, "-m", "pip", "install",
-                              tf_dep]).wait()
-        else:
-            # If we're using Docker, this will already have been installed
-            # explicitly through the correct `{cpu/gpu}_requirements.txt`;
-            # there is no way to check for CUDA/GPUs at Docker build time
-            # because there is no easy way to set the Nvidia runtime.
-            # TODO(vsatish): Figure out why this isn't printed.
-            skip_tf_msg = ("Omitting Tensorflow dependency because of Docker"
-                           " installation.")
-            logger.warning(skip_tf_msg)
-
-        # Run installation.
-        develop.run(self)
-
-
-class InstallCmd(install, object):
-    user_options_custom = [
-        ("docker", None, "installing in Docker"),
-    ]
-    user_options = getattr(install, "user_options", []) + user_options_custom
-
-    def initialize_options(self):
-        install.initialize_options(self)
-
-        # Initialize options.
-        self.docker = False
-
-    def finalize_options(self):
-        install.finalize_options(self)
-
-    def run(self):
-        # Install Tensorflow dependency.
-        if not self.docker:
-            tf_dep = get_tf_dep()
-            subprocess.Popen([sys.executable, "-m", "pip", "install",
-                              tf_dep]).wait()
-        else:
-            # If we're using Docker, this will already have been installed
-            # explicitly through the correct `{cpu/gpu}_requirements.txt`;
-            # there is no way to check for CUDA/GPUs at Docker build time
-            # because there is no easy way to set the Nvidia runtime.
-            # TODO (vsatish): Figure out why this isn't printed.
-            skip_tf_msg = ("Omitting Tensorflow dependency because of Docker"
-                           " installation.")
-            logger.warning(skip_tf_msg)
-
-        # Run installation.
-        install.run(self)
-
-
-requirements = [
-    "autolab-core", "autolab-perception", "visualization", "numpy", "scipy",
-    "matplotlib", "opencv-python", "scikit-learn", "scikit-image", "psutil",
-    "gputil"
-]
-
 exec(
     open(
         os.path.join(os.path.dirname(os.path.realpath(__file__)),
                      "gqcnn/version.py")).read())
 
+requirements = [
+    "autolab-core", "autolab-perception", "visualization", "numpy", "ruamel.yaml"
+    "matplotlib", "opencv-python",  "psutil", "gputil" , "setuptools", "tensorflow"
+]
+
+def package_files(data_files, directory_list):
+
+    paths_dict = {}
+
+    for directory in directory_list:
+
+        for (path, directories, filenames) in os.walk(directory):
+
+            for filename in filenames:
+
+                file_path = os.path.join(path, filename)
+                install_path = os.path.join('share', package_name, path)
+
+                if install_path in paths_dict.keys():
+                    paths_dict[install_path].append(file_path)
+
+                else:
+                    paths_dict[install_path] = [file_path]
+
+    for key in paths_dict.keys():
+        data_files.append((key, paths_dict[key]))
+
+    return data_files
+
+package_name = "gqcnn"
+
+data_files=[
+        ('share/ament_index/resource_index/packages',
+            ['resource/' + package_name]),
+        ('share/' + package_name, ['package.xml']),
+    ]
+
 setup(
-    name="gqcnn",
-    version=__version__,  # noqa F821
-    description=("Project code for running Grasp Quality Convolutional"
-                 " Neural Networks"),
-    author="Vishal Satish",
-    author_email="vsatish@berkeley.edu",
-    license="Berkeley Copyright",
-    url="https://github.com/BerkeleyAutomation/gqcnn",
-    keywords="robotics grasping vision deep learning",
-    classifiers=[
-        "Development Status :: 4 - Beta",
-        "Programming Language :: Python :: 3.5",
-        "Programming Language :: Python :: 3.6",
-        "Programming Language :: Python :: 3.7",
-        "Natural Language :: English",  # yapf: disable
-        "Topic :: Scientific/Engineering"
-    ],
-    packages=find_packages(),
+    name=package_name,
+    version=__version__,
+    packages=find_packages(exclude=['test']),
+    data_files=package_files(data_files, ['models/', 'launch/', 'cfg/', 'data/']),
     install_requires=requirements,
-    extras_require={
-        "docs": ["sphinx", "sphinxcontrib-napoleon", "sphinx_rtd_theme"],
-    },
-    cmdclass={
-        "install": InstallCmd,
-        "develop": DevelopCmd
-    })
+    zip_safe=True,
+    maintainer='jinkai',
+    maintainer_email='oliverjkqiu@gmail.com',
+    description='TODO: Package description',
+    license='Apache-2.0',
+    tests_require=['pytest'],
+    entry_points={
+        'console_scripts': [
+            'grasp_planner_node = ros_nodes.grasp_planner_node:main',
+            'grasp_planner_example_client = ros_nodes.grasp_planner_example_client:main'
+        ],
+    }
+)
+

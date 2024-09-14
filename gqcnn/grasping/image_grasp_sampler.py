@@ -39,7 +39,7 @@ import scipy.ndimage.filters as snf
 import scipy.spatial.distance as ssd
 import scipy.stats as ss
 
-from autolab_core import (Point, RigidTransform, Logger,
+from core_updated import (Point, RigidTransform, Logger,
                           DepthImage, RgbdImage, GdImage)
 from visualization import Visualizer2D as vis
 

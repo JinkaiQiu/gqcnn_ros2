@@ -38,7 +38,7 @@ import time
 
 import numpy as np
 
-from autolab_core import (YamlConfig, Logger, BinaryImage, CameraIntrinsics,
+from core_updated import (YamlConfig, Logger, BinaryImage, CameraIntrinsics,
                           ColorImage, DepthImage, RgbdImage)
 from visualization import Visualizer2D as vis
 
@@ -255,7 +255,7 @@ if __name__ == "__main__":
     action = policy(state)
     logger.info("Planning took %.3f sec" % (time.time() - policy_start))
 
-    # Vis final grasp.
+    # Save final grasp visualization.
     if policy_config["vis"]["final_grasp"]:
         vis.figure(size=(10, 10))
         vis.imshow(rgbd_im.depth,
@@ -264,4 +264,4 @@ if __name__ == "__main__":
         vis.grasp(action.grasp, scale=2.5, show_center=False, show_axis=True)
         vis.title("Planned grasp at depth {0:.3f}m with Q={1:.3f}".format(
             action.grasp.depth, action.q_value))
-        vis.show()
+        vis.savefig("final_grasp.png")

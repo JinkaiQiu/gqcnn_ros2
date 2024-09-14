@@ -30,7 +30,7 @@ Jeff Mahler
 """
 import numpy as np
 
-from autolab_core import Point, RigidTransform, CameraIntrinsics
+from core_updated import Point, RigidTransform, CameraIntrinsics
 
 
 class Grasp2D(object):
